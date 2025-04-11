@@ -5,18 +5,29 @@
 #include "data_types.h"
 #include "llhttp.h"
 #include "reactor.h"
+#include "postgresql/libpq-fe.h"
 
 namespace FiberConn
 {
+
+    enum ClientConnectionState {
+        IDLE,
+        CONNECTED,
+        REQUEST,
+        RESPONSE
+    };
+
     class Clientconnection
     {
     private:
         int socket;
         IOReactor *ioc;
     public:
-        void *parent = nullptr;
 
+        ClientConnectionState connection_state;
+        Clientconnection *parent = nullptr;
         bool is_error = false;
+
         HttpRequest *request;
 
         llhttp_t *parser;
@@ -32,6 +43,7 @@ namespace FiberConn
         {
             this->socket = sockfd;
             this->ioc = ioc;
+            connection_state = ClientConnectionState::CONNECTED;
 
             request = new HttpRequest();
 
@@ -238,4 +250,100 @@ namespace FiberConn
         }
     };
 
+
+    enum DbConnectionState{
+        IDLE,
+        CONNECTING,
+        CONNECTED,
+        SENDING_QUERY,
+        READING_RESPONSE
+    };
+
+    class Dbconnection{
+    private:
+        int socket;
+        IOReactor *ioc;
+    public:
+        DbConnectionState connection_state;
+
+        Clientconnection *parent = nullptr;
+        bool is_error = false;  
+
+        PGconn *conn;
+
+
+        void connectDb(char *conninfo, std::function<void(void *)> cb){
+            this->conn = PQconnectStart(conninfo);
+            if (conn == NULL){
+                is_error = true;
+                cb(this);
+            }
+            this->socket = PQsocket(conn);
+            this->connection_state = DbConnectionState::CONNECTING;
+
+            /*monitor the socket for writing*/
+            uint32_t mask = EPOLLOUT | EPOLLET | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
+            this->ioc->addTrack(this->socket, mask, NEW_SOCK, [this, cb](struct epoll_event event) {
+                this->handleEvent(event, cb); 
+            });     
+        }
+
+        void handleEvent(struct epoll_event ev, std::function<void(void *)> cb){
+
+            if(ev.events & EPOLLERR){
+                /*cleanup*/
+                return;
+            }
+
+            if(this->connection_state == DbConnectionState::CONNECTING){
+                PostgresPollingStatusType status = PQconnectPoll(this->conn);
+                if (status == PGRES_POLLING_READING)
+                {
+                    uint32_t mask = EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
+                    ioc->modifyTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
+                        this->handleEvent(event, cb); 
+                    });                    
+                }
+                else if (status == PGRES_POLLING_WRITING)
+                {
+                    uint32_t mask = EPOLLOUT | EPOLLET | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
+                    ioc->modifyTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
+                        this->handleEvent(event, cb); 
+                    });     
+                }
+                else if (status == PGRES_POLLING_FAILED)
+                {
+                    is_error = true;
+                    cb(this);
+                }
+                else if (status == PGRES_POLLING_OK)
+                {
+                    this->connection_state = DbConnectionState::CONNECTED;
+                    if(PQsetnonblocking(this->conn, 1) == -1){
+                        printf("%s\n", PQerrorMessage(conn));
+                    }
+                    cb(this);
+                }               
+            }
+            else if(this->connection_state == DbConnectionState::SENDING_QUERY){
+
+            }
+            else if(this->connection_state == DbConnectionState::READING_RESPONSE){
+
+            }
+        }
+
+        Dbconnection(Clientconnection *parent, IOReactor *ioc)
+        {
+            this->ioc = ioc;
+            this->parent = parent;
+            this->connection_state = IDLE;
+            conn = NULL;
+        }
+
+        ~Dbconnection(){
+            PQfinish(conn);
+        }
+
+    };
 } // namespace FiberConn
