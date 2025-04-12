@@ -1,9 +1,9 @@
 #!/bin/bash
 
 HOST="127.0.0.1"
-PORT="3490"
+PORT="3491"
 CLIENT_EXEC="./client"
-NUM_CLIENTS=1000
+NUM_CLIENTS=10000
 
 echo "Starting $NUM_CLIENTS clients..."
 

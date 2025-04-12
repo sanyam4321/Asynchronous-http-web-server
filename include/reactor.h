@@ -81,13 +81,13 @@ public:
     int removeTrack(int sockfd)
     {
         if (removeEpollInterest(epollfd_, sockfd) == -1) {
-            std::cerr << "Failed to remove fd from epoll\n";
-            return -1;
+            // std::cerr << "Failed to remove fd from epoll: "<< strerror(errno)<<"\n";
         }
         event_callback_.remove(sockfd);
         event_priority_.remove(sockfd);
         return 0;
     }
+
     int runCallback(std::pair<EventPriority, struct epoll_event> new_event)
     {
         /*get the callback from the hashmap and run it*/

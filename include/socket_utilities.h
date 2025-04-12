@@ -152,7 +152,7 @@ namespace FiberConn
         return 0;
     }
     int removeEpollInterest(int epollfd, int fd){
-        if(epoll_ctl(epollfd, fd, EPOLL_CTL_DEL, NULL) == -1){
+        if(epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL) == -1){
             return -1;
         }
         return 0;

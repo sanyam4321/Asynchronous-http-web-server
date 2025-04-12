@@ -10,21 +10,16 @@
 namespace FiberConn
 {
 
-    enum ClientConnectionState {
-        IDLE,
-        CONNECTED,
-        REQUEST,
-        RESPONSE
-    };
+    class Clientconnection;
+    extern std::unordered_map<Clientconnection *, bool> isAlive;
 
     class Clientconnection
     {
-    private:
+    public:
         int socket;
         IOReactor *ioc;
-    public:
+    
 
-        ClientConnectionState connection_state;
         Clientconnection *parent = nullptr;
         bool is_error = false;
 
@@ -43,7 +38,6 @@ namespace FiberConn
         {
             this->socket = sockfd;
             this->ioc = ioc;
-            connection_state = ClientConnectionState::CONNECTED;
 
             request = new HttpRequest();
 
@@ -71,14 +65,22 @@ namespace FiberConn
             llhttp_init(parser, HTTP_REQUEST, settings);
             auto *dataPair = new std::pair<FiberConn::Clientconnection*, std::function<void(void*)>>(this, nullptr);
             parser->data = static_cast<void *>(dataPair);
+
+            isAlive[this] = true;
         }
         ~Clientconnection()
         {
+            ioc->removeTrack(this->socket);
             closeConnection(this->socket);
+            delete static_cast<std::pair<Clientconnection*, std::function<void(void*)>>*>(parser->data);
             delete request;
             delete parser;
             delete settings;
-            delete static_cast<std::pair<Clientconnection*, std::function<void(void*)>>*>(parser->data);
+
+            auto it = isAlive.find(this);
+            if(it != isAlive.end()){
+                isAlive.erase(it);
+            }
         }
 
         static int on_message_begin(llhttp_t *parser)
@@ -165,7 +167,7 @@ namespace FiberConn
         
         void write(std::function<void(void *)> cb)
         {
-            uint32_t mask = EPOLLOUT | EPOLLET | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
+            uint32_t mask = EPOLLOUT | EPOLLET | EPOLLERR | EPOLLHUP;
             ioc->modifyTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
                 this->handleEvent(event, cb); 
             });
@@ -173,7 +175,7 @@ namespace FiberConn
 
         void read(std::function<void(void *)> cb)
         {
-            uint32_t mask = EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
+            uint32_t mask = EPOLLIN | EPOLLET | EPOLLERR | EPOLLHUP;
             this->ioc->addTrack(this->socket, mask, NEW_SOCK, [this, cb](struct epoll_event event) {
                 this->handleEvent(event, cb);
             });       
@@ -250,7 +252,6 @@ namespace FiberConn
         }
     };
 
-
     enum DbConnectionState{
         IDLE,
         CONNECTING,
@@ -259,39 +260,65 @@ namespace FiberConn
         READING_RESPONSE
     };
 
+    struct QueryResult{
+        int rows;
+        int cols;
+        std::vector<std::vector<std::string>> table;
+    };
+
     class Dbconnection{
-    private:
+    public:
         int socket;
         IOReactor *ioc;
-    public:
+    
         DbConnectionState connection_state;
 
         Clientconnection *parent = nullptr;
+        int parent_socket;
+
         bool is_error = false;  
 
         PGconn *conn;
-
+        std::vector<QueryResult> results; 
 
         void connectDb(char *conninfo, std::function<void(void *)> cb){
             this->conn = PQconnectStart(conninfo);
             if (conn == NULL){
                 is_error = true;
                 cb(this);
+                return;
             }
             this->socket = PQsocket(conn);
             this->connection_state = DbConnectionState::CONNECTING;
 
             /*monitor the socket for writing*/
-            uint32_t mask = EPOLLOUT | EPOLLET | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
-            this->ioc->addTrack(this->socket, mask, NEW_SOCK, [this, cb](struct epoll_event event) {
+            uint32_t mask = EPOLLOUT | EPOLLET | EPOLLERR | EPOLLHUP;
+            this->ioc->addTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event) {
                 this->handleEvent(event, cb); 
             });     
+        }
+
+        void sendQuery(char *query_string, std::function<void(void *)> cb){
+            if(PQsendQuery(conn, query_string) == 0){
+                std::cerr<<PQerrorMessage(conn)<<"\n";
+                is_error = true;
+                cb(this);
+                return;
+            }
+            this->connection_state = DbConnectionState::SENDING_QUERY;
+
+            uint32_t mask = EPOLLOUT | EPOLLET | EPOLLERR | EPOLLHUP;
+            this->ioc->addTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event) {
+                this->handleEvent(event, cb); 
+            });    
         }
 
         void handleEvent(struct epoll_event ev, std::function<void(void *)> cb){
 
             if(ev.events & EPOLLERR){
-                /*cleanup*/
+                is_error = true;
+                ioc->removeTrack(this->socket);
+                cb(this);
                 return;
             }
 
@@ -299,50 +326,132 @@ namespace FiberConn
                 PostgresPollingStatusType status = PQconnectPoll(this->conn);
                 if (status == PGRES_POLLING_READING)
                 {
-                    uint32_t mask = EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
-                    ioc->modifyTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
+                    uint32_t mask = EPOLLIN | EPOLLET | EPOLLERR | EPOLLHUP;
+                    this->ioc->modifyTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
                         this->handleEvent(event, cb); 
                     });                    
                 }
                 else if (status == PGRES_POLLING_WRITING)
                 {
-                    uint32_t mask = EPOLLOUT | EPOLLET | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
-                    ioc->modifyTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
+                    uint32_t mask = EPOLLOUT | EPOLLET | EPOLLERR | EPOLLHUP;
+                    this->ioc->modifyTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
                         this->handleEvent(event, cb); 
                     });     
                 }
                 else if (status == PGRES_POLLING_FAILED)
                 {
                     is_error = true;
+                    this->ioc->removeTrack(this->socket);
                     cb(this);
+                    return;
                 }
                 else if (status == PGRES_POLLING_OK)
                 {
                     this->connection_state = DbConnectionState::CONNECTED;
+                    this->ioc->removeTrack(this->socket);
                     if(PQsetnonblocking(this->conn, 1) == -1){
-                        printf("%s\n", PQerrorMessage(conn));
+                        std::cerr<<PQerrorMessage(conn)<<"\n";
                     }
                     cb(this);
+                    return;
                 }               
             }
             else if(this->connection_state == DbConnectionState::SENDING_QUERY){
-
+                int status = PQflush(conn);
+                if(status == -1){
+                    is_error = true;
+                    this->ioc->removeTrack(this->socket);
+                    this->connection_state = DbConnectionState::IDLE;
+                    cb(this);
+                    return;
+                }
+                else if(status == 0){
+                    this->connection_state = DbConnectionState::READING_RESPONSE;
+                    uint32_t mask = EPOLLIN | EPOLLET | EPOLLERR | EPOLLHUP;
+                    ioc->modifyTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
+                        this->handleEvent(event, cb); 
+                    });
+                    return;
+                }
+                else if(status == 1){
+                    /*pending flushing*/
+                    return;
+                }
             }
             else if(this->connection_state == DbConnectionState::READING_RESPONSE){
+                int status = PQconsumeInput(conn);
+                if(status == 0){
+                    is_error = true;
+                    this->ioc->removeTrack(this->socket);
+                    this->connection_state = DbConnectionState::IDLE;
+                    cb(this);
+                    return;
+                }
+                int isBusy = PQisBusy(this->conn);
+                if(isBusy == 1){
+                    /*Request pending*/
+                }
+                else if(isBusy == 0){
+                    /*Request complete*/
+                    this->ioc->removeTrack(this->socket);
+                    this->connection_state = DbConnectionState::IDLE;
 
+                    /*storing all the results locally*/
+                    PGresult *res;
+                    while((res = PQgetResult(this->conn)) != NULL){
+                        if (PQresultStatus(res) != PGRES_TUPLES_OK){
+                            std::cerr<<PQerrorMessage(conn)<<"\n";
+                            PQclear(res);
+                            is_error = true;
+                            cb(this);
+                            return;
+                        }
+                        int nrows = PQntuples(res);
+                        int ncols = PQnfields(res);
+                        
+                        QueryResult temp;
+                        temp.rows = nrows;
+                        temp.cols = ncols;
+                        
+
+                        for(int i=0; i<nrows; i++){
+                            std::vector<std::string> tuple;
+                            for(int j=0; j<ncols; j++){
+                                tuple.emplace_back(std::string(PQgetvalue(res, i, j)));
+                            }
+                            temp.table.emplace_back(tuple);
+                        }
+
+                        PQclear(res);
+                        this->results.push_back(temp);
+                    }
+                    cb(this);
+                    return;
+                }
             }
+        }
+
+        Clientconnection *getParent(){
+            Clientconnection *parent_ptr = nullptr;
+            auto it = isAlive.find(this->parent);
+            if(it != isAlive.end()){
+                parent_ptr = this->parent;
+            }
+            return parent_ptr;
         }
 
         Dbconnection(Clientconnection *parent, IOReactor *ioc)
         {
             this->ioc = ioc;
             this->parent = parent;
+            this->parent_socket = parent->socket;
             this->connection_state = IDLE;
             conn = NULL;
         }
 
         ~Dbconnection(){
-            PQfinish(conn);
+            ioc->removeTrack(this->socket);
+            PQfinish(this->conn);
         }
 
     };

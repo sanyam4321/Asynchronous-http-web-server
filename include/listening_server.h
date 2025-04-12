@@ -40,8 +40,6 @@ public:
         });
         if (status == -1) {
             /*clean up*/
-        } else {
-            ioc->reactorRun();
         }
         return 0;
     }
