@@ -41,14 +41,21 @@ int main(int argc, char* argv[])
     server->listen([ioc](void *new_con){
         auto *client = static_cast<FiberConn::Clientconnection *>(new_con);
         
+        std::cout<<"submitting read request\n";
         client->read([ioc](void *new_con){
             auto *client = static_cast<FiberConn::Clientconnection *>(new_con);
+            std::cout<<"client successfully read: "<<client->socket<<"\n";
             if(client->is_error){
                 delete client;
                 return;
             }
             std::cout<<client->request->URL<<"\n";
-
+            if(client->request->URL == "/"){
+                delete client;
+                std::cout<<"client deleted\n";
+                return;
+            }
+            std::cout<<"url not /\n";
             FiberConn::Dbconnection *db = new FiberConn::Dbconnection(client, ioc);
             char conninfo[] = "host=localhost dbname=mydatabase user=myuser password=mypassword";
             db->connectDb(conninfo, [](void *conn){
@@ -120,6 +127,7 @@ int main(int argc, char* argv[])
 
             
         });
+        std::cout<<"After Callback\n";
     });
     
     ioc->reactorRun();
