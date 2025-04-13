@@ -34,7 +34,6 @@ public:
                 } else {
                     /*create a new connection object*/
                     FiberConn::Clientconnection* client = new FiberConn::Clientconnection(newfd, this->ioc);
-                    std::cout<<"New client: "<<client->socket<<"\n";
                     cb(client);
                 }
             }

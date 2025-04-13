@@ -27,7 +27,7 @@ private:
         bool operator()(const std::pair<EventPriority, struct epoll_event>& a,
             const std::pair<EventPriority, struct epoll_event>& b) const
         {
-            return a.first > b.first;
+            return a.first < b.first;
         }
     };
 
@@ -92,7 +92,7 @@ public:
     {
         /*get the callback from the hashmap and run it*/
         int temp_fd = new_event.second.data.fd;
-        std::cout << "Running callback for socket: " << temp_fd << "\n";
+        // std::cout << "Running callback for socket: " << temp_fd << "\n";
         Callback cb;
         if (event_callback_.get(temp_fd, cb)) {
             cb(new_event.second);

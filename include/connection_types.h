@@ -5,6 +5,7 @@
 #include "data_types.h"
 #include "llhttp.h"
 #include "reactor.h"
+#include <cstring>
 #include "postgresql/libpq-fe.h"
 
 namespace FiberConn
@@ -78,13 +79,13 @@ namespace FiberConn
 
             static int on_message_begin(llhttp_t *parser)
             {
-                std::cout << "[Callback] Message begin\n";
+                // std::cout << "[Callback] Message begin\n";
                 return 0;
             }
 
             static int on_method(llhttp_t *parser, const char *at, size_t length)
             {
-                std::cout<<"on method\n";
+                // std::cout<<"on method\n";
                 FiberConn::Clientconnection* conn = static_cast<FiberConn::Clientconnection*>(parser->data);
                 HttpRequest *request = conn->request;
                 request->method.append(at, length);
@@ -93,7 +94,7 @@ namespace FiberConn
 
             static int on_url(llhttp_t *parser, const char *at, size_t length)
             {
-                std::cout<<"on url\n";
+                // std::cout<<"on url\n";
                 FiberConn::Clientconnection* conn = static_cast<FiberConn::Clientconnection*>(parser->data);
                 HttpRequest *request = conn->request;
                 request->URL.append(at, length);
@@ -102,7 +103,7 @@ namespace FiberConn
 
             static int on_version(llhttp_t *parser, const char *at, size_t length)
             {
-                std::cout<<"on version\n";
+                // std::cout<<"on version\n";
                 FiberConn::Clientconnection* conn = static_cast<FiberConn::Clientconnection*>(parser->data);
                 HttpRequest *request = conn->request;
                 request->version.append(at, length);
@@ -111,7 +112,7 @@ namespace FiberConn
 
             static int on_header_field(llhttp_t *parser, const char *at, size_t length)
             {
-                std::cout<<"on header field\n";
+                // std::cout<<"on header field\n";
                 FiberConn::Clientconnection* conn = static_cast<FiberConn::Clientconnection*>(parser->data);
                 HttpRequest *request = conn->request;
                 request->key.append(at, length);
@@ -120,7 +121,7 @@ namespace FiberConn
 
             static int on_header_value(llhttp_t *parser, const char *at, size_t length)
             {
-                std::cout<<"on header value\n";
+                // std::cout<<"on header value\n";
                 FiberConn::Clientconnection* conn = static_cast<FiberConn::Clientconnection*>(parser->data);
                 HttpRequest *request = conn->request;
                 request->value.append(at, length);
@@ -129,7 +130,7 @@ namespace FiberConn
 
             static int on_header_value_complete(llhttp_t *parser)
             {
-                std::cout<<"on header value complete\n";
+                // std::cout<<"on header value complete\n";
                 FiberConn::Clientconnection* conn = static_cast<FiberConn::Clientconnection*>(parser->data);
                 HttpRequest *request = conn->request;
                 request->headers[request->key] = request->value;
@@ -138,11 +139,11 @@ namespace FiberConn
                 return 0;
             }
 
-            static int on_headers_complete(llhttp_t *parser) { std::cout<<"on header complete\n"; return 0; }
+            static int on_headers_complete(llhttp_t *parser) { /*std::cout<<"on header complete\n";*/ return 0; }
 
             static int on_body(llhttp_t *parser, const char *at, size_t length)
             {
-                std::cout<<"on body\n";
+                // std::cout<<"on body\n";
                 FiberConn::Clientconnection* conn = static_cast<FiberConn::Clientconnection*>(parser->data);
                 HttpRequest *request = conn->request;
                 request->body.insert(request->body.end(), at, at + length);
@@ -151,7 +152,7 @@ namespace FiberConn
 
             static int on_message_complete(llhttp_t *parser)
             {
-                std::cout<<"message complete\n";
+                // std::cout<<"message complete\n";
                 llhttp_pause(parser);
                 FiberConn::Clientconnection* conn = static_cast<FiberConn::Clientconnection*>(parser->data);
                 conn->is_request_complete = true;
@@ -171,7 +172,6 @@ namespace FiberConn
             {
                 uint32_t mask = EPOLLIN | EPOLLET | EPOLLERR | EPOLLHUP;
                 this->ioc->addTrack(this->socket, mask, NEW_SOCK, [this, cb](struct epoll_event event) {
-                    std::cout<<"original callback calling handle event: "<<this->socket<<"\n";
                     this->handleEvent(event, cb);
                 });       
             }
@@ -191,12 +191,10 @@ namespace FiberConn
             }
             else if (ev.events & EPOLLIN)
             {
-                std::cout<<"event socket:  "<<this->socket<<"\n";
                 int read_bytes;
                 memset(recvBuffer, 0, sizeof(recvBuffer));
                 while ((read_bytes = recv(this->socket, this->recvBuffer, sizeof(this->recvBuffer), MSG_DONTWAIT)) > 0)
                 {
-                    std::cout<<"read chunk\n";
                     llhttp_errno_t llerror = llhttp_execute(this->parser, recvBuffer, read_bytes);
                     if (llerror != HPE_OK)
                     {
@@ -205,7 +203,6 @@ namespace FiberConn
                         cb(this);
                         return;
                     }
-                    std::cout<<"llparsing complete\n";
                     if(this->is_request_complete == true){
                         cb(this);
                         return;
@@ -216,14 +213,12 @@ namespace FiberConn
                 if (read_bytes == 0)
                 {
                     this->is_error = true;
-                    std::cout<<"Client Disconnected read = 0\n";
                     cb(this);
                     return;
                 }
             }
             else if (ev.events & EPOLLOUT)
             {
-                std::cout<<"EPOLLOUT event\n";
                 int bytes_sent;
                 while ((bytes_sent = send(this->socket, this->sendBuffer.data() + this->sent_bytes, this->sendBuffer.size() - this->sent_bytes, MSG_DONTWAIT)) > 0)
                 {
@@ -241,7 +236,7 @@ namespace FiberConn
 
                 if (bytes_sent == -1)
                 {
-                    std::cout<<"Bytes Sent error\n";
+                    std::cerr<<"Bytes Sent error\n";
                     if (errno == EAGAIN || errno == EWOULDBLOCK)
                     {
                         return;
@@ -259,6 +254,7 @@ namespace FiberConn
 
     enum DbConnectionState{
         IDLE,
+        NOT_CONNECTED,
         CONNECTING,
         CONNECTED,
         SENDING_QUERY,
@@ -289,12 +285,12 @@ namespace FiberConn
         void connectDb(char *conninfo, std::function<void(void *)> cb){
             this->conn = PQconnectStart(conninfo);
             if (conn == NULL){
+                std::cout<<"null connection\n";
                 is_error = true;
                 cb(this);
                 return;
             }
             this->socket = PQsocket(conn);
-            std::cout<<"db socket: "<<this->socket<<"\n";
             this->connection_state = DbConnectionState::CONNECTING;
 
             /*monitor the socket for writing*/
@@ -346,6 +342,7 @@ namespace FiberConn
                 }
                 else if (status == PGRES_POLLING_FAILED)
                 {
+                    std::cout<<"database polling failed\n";
                     is_error = true;
                     this->ioc->removeTrack(this->socket);
                     cb(this);
@@ -446,12 +443,20 @@ namespace FiberConn
             return parent_ptr;
         }
 
+        void resetConnection(){
+            this->parent = nullptr;
+            this->parent_socket = 0;
+            this->results.clear();
+        }
+
         Dbconnection(Clientconnection *parent, IOReactor *ioc)
         {
             this->ioc = ioc;
             this->parent = parent;
-            this->parent_socket = parent->socket;
-            this->connection_state = IDLE;
+            if(this->parent != nullptr){
+                this->parent_socket = parent->socket;
+            }
+            this->connection_state = DbConnectionState::NOT_CONNECTED;
             conn = NULL;
         }
 
