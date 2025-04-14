@@ -1,7 +1,7 @@
 #!/bin/bash
 
 HOST="127.0.0.1"
-PORT="3491"
+PORT="3490"
 CLIENT_EXEC="./client"
 NUM_CLIENTS=10000
 

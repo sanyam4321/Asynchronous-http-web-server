@@ -1,90 +1,88 @@
-#include <iostream>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <cstring>
-#include <netinet/in.h>
-#include <errno.h>
+#include "connection_types.h"
+#include "data_types.h"
+#include "listening_server.h"
+#include "reactor.h"
+#include "socket_utilities.h"
+#include <sstream>
+#include "db_pooler.h"
+#include <csignal>
 
-#include <unistd.h>
-int main(int argc, char *argv[])
+namespace FiberConn {
+    std::unordered_map<Clientconnection*, bool> isAlive;
+}
+
+void printHttpResponse(const FiberConn::HttpResponse* response) {
+    if (!response) {
+        std::cerr << "Null response pointer.\n";
+        return;
+    }
+
+    std::cout << "=== HTTP Response ===\n";
+    std::cout << "Version: " << response->version << "\n";
+    std::cout << "Status: " << response->status << "\n";
+    std::cout << "Key: " << response->key << "\n";
+    std::cout << "Value: " << response->value << "\n";
+
+    std::cout << "Headers:\n";
+    for (const auto& [k, v] : response->headers) {
+        std::cout << "  " << k << ": " << v << "\n";
+    }
+
+    std::cout << "Body (" << response->body.size() << " bytes):\n";
+    std::cout.write(response->body.data(), response->body.size());
+    std::cout << "\n=====================\n";
+}
+
+int main(int argc, char* argv[])
 {
-    if (argc < 3)
-    {
-        std::cerr << "Too few arguments" << std::endl;
-        exit(1);
+    signal(SIGPIPE, SIG_IGN);
+    if (argc < 3) {
+        std::cerr << "Too few arguments\n";
+        return 1;
     }
-    int status;
-    struct addrinfo hints;
-    struct addrinfo *servlist = nullptr; // linked list to all addresses
-
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    if ((status = getaddrinfo(argv[1], argv[2], &hints, &servlist)) != 0)
-    {
-        std::cerr << "getaddrinfo error: " << gai_strerror(status) << std::endl;
-        exit(1);
-    }
-
-    std::cout << "IP addresses for: " << argv[1] << std::endl;
-
-    struct addrinfo *server_info;
-
-    for (server_info = servlist; server_info != nullptr; server_info = server_info->ai_next)
-    {
-        char ip_string[INET6_ADDRSTRLEN];
-        void *addr;
-        int port;
-        std::string ip_version;
-
-        if (server_info->ai_family == AF_INET)
-        {
-            struct sockaddr_in *ipv4 = (struct sockaddr_in *)server_info->ai_addr;
-            addr = &(ipv4->sin_addr);
-            port = ntohs(ipv4->sin_port);
-            ip_version = "IPV4";
-
-            // convert addr to readable format
-            inet_ntop(server_info->ai_family, addr, ip_string, sizeof(ip_string));
-            std::cout << ip_string << " " << port << " " << ip_version << std::endl;
-            break;
-        }
-        else
-        {
-            struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)server_info->ai_addr;
-            addr = &(ipv6->sin6_addr);
-            port = ntohs(ipv6->sin6_port);
-            ip_version = "IPV6";
-
-            // convert addr to readable format
-            inet_ntop(server_info->ai_family, addr, ip_string, sizeof(ip_string));
-            std::cout << ip_string << " " << port << " " << ip_version << std::endl;
-        }
-    }
+    
+    FiberConn::IOReactor *ioc = new FiberConn::IOReactor(10000);
 
     
+    FiberConn::APIconnection *apiconn = new FiberConn::APIconnection(nullptr, ioc);
 
-    int sockfd;
-    if ((sockfd = socket(server_info->ai_family, server_info->ai_socktype, server_info->ai_protocol)) == -1)
-    {
-        std::cerr << "socket error: " << strerror(errno) << std::endl;
-        exit(1);
-    }
+    std::string address(argv[1]);
+    std::string port(argv[2]);
+    apiconn->connectApi(address, port, [](void *conn){
+        FiberConn::APIconnection *apiconn = static_cast<FiberConn::APIconnection *>(conn);
+        std::cout<<apiconn->socket<<"\n";
+        if(apiconn->is_error == false){
+            std::cout<<"successfully connected\n";
+            
+            std::ostringstream oss;
+            oss << "GET / HTTP/1.1\r\n";
+            oss << "Host: www.habfix-gray.vercel.app\r\n";
+            oss << "User-Agent: FiberConn/1.0\r\n";
+            oss << "Accept: */*\r\n";
+            oss << "Connection: close\r\n";
+            oss << "\r\n";
 
-    if (connect(sockfd, server_info->ai_addr, server_info->ai_addrlen) == -1)
-    {
-        std::cerr << "connect error: " << strerror(errno) << std::endl;
-        exit(1);
-    }
+            std::string request = oss.str();
 
-    freeaddrinfo(servlist);
+            apiconn->sendBuffer.insert(apiconn->sendBuffer.end(), request.begin(), request.end());
 
-    char buffer[] = "GET / HTTP/1.1\r\n\r\n";
-    int bytes_write;
-    bytes_write = send(sockfd, buffer, strlen(buffer), 0);
-    std::cout<<bytes_write<<" "<< buffer<<std::endl;
+            apiconn->sendRequest([](void *conn){
+                FiberConn::APIconnection *apiconn = static_cast<FiberConn::APIconnection *>(conn);
+                if(apiconn->is_error){
+                    std::cout<<"error\n";
+                    delete apiconn;
+                    return;
+                }
+                printHttpResponse(apiconn->response);
+                delete apiconn;
+            });
+        }
+        else{
+            std::cout<<"connection failed\n";
+            delete apiconn;
+        }
+    });
+    
+    ioc->reactorRun();
     return 0;
 }
