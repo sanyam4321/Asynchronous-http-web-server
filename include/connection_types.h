@@ -309,10 +309,28 @@ namespace FiberConn
             }
             this->connection_state = DbConnectionState::SENDING_QUERY;
 
-            uint32_t mask = EPOLLOUT | EPOLLET | EPOLLERR | EPOLLHUP;
-            this->ioc->addTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event) {
-                this->handleEvent(event, cb); 
-            });    
+            int status = PQflush(this->conn);
+            if(status == -1){
+                is_error = true;
+                this->connection_state = DbConnectionState::IDLE;
+                cb(this);
+                return;
+            }
+            else if(status == 0){
+                this->connection_state = DbConnectionState::READING_RESPONSE;
+                uint32_t mask = EPOLLIN | EPOLLET | EPOLLERR | EPOLLHUP;
+                ioc->addTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
+                    this->handleEvent(event, cb); 
+                });
+                return;
+            }
+            else if(status == 1){
+                uint32_t mask = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLERR | EPOLLHUP;
+                ioc->addTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
+                    this->handleEvent(event, cb); 
+                });
+                return;
+            }    
         }
 
         void handleEvent(struct epoll_event ev, std::function<void(void *)> cb){
@@ -360,25 +378,33 @@ namespace FiberConn
                 }               
             }
             else if(this->connection_state == DbConnectionState::SENDING_QUERY){
-                int status = PQflush(conn);
-                if(status == -1){
-                    is_error = true;
-                    this->ioc->removeTrack(this->socket);
-                    this->connection_state = DbConnectionState::IDLE;
-                    cb(this);
-                    return;
+                int consumeStatus = 1, flushStatus = 1;
+                if(ev.events & EPOLLOUT){
+                    flushStatus = PQflush(this->conn);
+                    if(flushStatus == -1){
+                        is_error = true;
+                        this->ioc->removeTrack(this->socket);
+                        cb(this);
+                        return;
+                    }
                 }
-                else if(status == 0){
+                if(ev.events & EPOLLIN){
+                    consumeStatus = PQconsumeInput(this->conn);
+                    flushStatus = PQflush(this->conn);
+                    if(flushStatus == -1 || consumeStatus == 0){
+                        is_error = true;
+                        this->ioc->removeTrack(this->socket);
+                        cb(this);
+                        return;
+                    }
+                }
+                if(flushStatus == 0){
                     this->connection_state = DbConnectionState::READING_RESPONSE;
                     uint32_t mask = EPOLLIN | EPOLLET | EPOLLERR | EPOLLHUP;
                     ioc->modifyTrack(this->socket, mask, HELPER_SOCK, [this, cb](struct epoll_event event){ 
                         this->handleEvent(event, cb); 
                     });
-                    return;
-                }
-                else if(status == 1){
-                    /*pending flushing*/
-                    return;
+                    return;  
                 }
             }
             else if(this->connection_state == DbConnectionState::READING_RESPONSE){
