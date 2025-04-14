@@ -731,6 +731,15 @@ namespace FiberConn
             
         }
 
+        Clientconnection *getParent(){
+            Clientconnection *parent_ptr = nullptr;
+            auto it = isAlive.find(this->parent);
+            if(it != isAlive.end()){
+                parent_ptr = this->parent;
+            }
+            return parent_ptr;
+        }
+
         APIconnection(Clientconnection *parent, IOReactor *ioc){
             this->ioc = ioc;
             this->parent = parent;
