@@ -11,6 +11,28 @@ namespace FiberConn {
     std::unordered_map<Clientconnection*, bool> isAlive;
 }
 
+void printHttpResponse(const FiberConn::HttpResponse* response) {
+    if (!response) {
+        std::cerr << "Null response pointer.\n";
+        return;
+    }
+
+    std::cout << "=== HTTP Response ===\n";
+    std::cout << "Version: " << response->version << "\n";
+    std::cout << "Status: " << response->status << "\n";
+    std::cout << "Key: " << response->key << "\n";
+    std::cout << "Value: " << response->value << "\n";
+
+    std::cout << "Headers:\n";
+    for (const auto& [k, v] : response->headers) {
+        std::cout << "  " << k << ": " << v << "\n";
+    }
+
+    std::cout << "Body (" << response->body.size() << " bytes):\n";
+    std::cout.write(response->body.data(), response->body.size());
+    std::cout << "\n=====================\n";
+}
+
 int main(int argc, char* argv[])
 {
     signal(SIGPIPE, SIG_IGN);
@@ -21,6 +43,49 @@ int main(int argc, char* argv[])
     
     FiberConn::IOReactor *ioc = new FiberConn::IOReactor(10000);
 
+    
+    // FiberConn::APIconnection *apiconn = new FiberConn::APIconnection(nullptr, ioc);
+
+    // std::string address(argv[1]);
+    // std::string port(argv[2]);
+    // apiconn->connectApi(address, port, [](void *conn){
+    //     FiberConn::APIconnection *apiconn = static_cast<FiberConn::APIconnection *>(conn);
+    //     std::cout<<apiconn->socket<<"\n";
+    //     if(apiconn->is_error == false){
+    //         std::cout<<"successfully connected\n";
+            
+    //         std::ostringstream oss;
+    //         oss << "GET / HTTP/1.1\r\n";
+    //         oss << "Host: www.habfix-gray.vercel.app\r\n";
+    //         oss << "User-Agent: FiberConn/1.0\r\n";
+    //         oss << "Accept: */*\r\n";
+    //         oss << "Connection: close\r\n";
+    //         oss << "\r\n";
+
+    //         std::string request = oss.str();
+
+    //         apiconn->sendBuffer.insert(apiconn->sendBuffer.end(), request.begin(), request.end());
+
+    //         apiconn->sendRequest([](void *conn){
+    //             FiberConn::APIconnection *apiconn = static_cast<FiberConn::APIconnection *>(conn);
+    //             if(apiconn->is_error){
+    //                 std::cout<<"error\n";
+    //                 delete apiconn;
+    //                 return;
+    //             }
+    //             printHttpResponse(apiconn->response);
+    //             delete apiconn;
+    //         });
+    //     }
+    //     else{
+    //         std::cout<<"connection failed\n";
+    //         delete apiconn;
+    //     }
+    // });
+
+    
+   
+    
     std::string conninfo = "host=127.0.0.1 port=5432 dbname=mydatabase user=myuser password=mypassword";
     FiberConn::DBpooler *pooler = new FiberConn::DBpooler(ioc, conninfo, 100);
     FiberConn::HttpServer *server = new FiberConn::HttpServer(ioc, argv[1], argv[2]);
@@ -102,6 +167,7 @@ int main(int argc, char* argv[])
             });
         });
     });
+    
     ioc->reactorRun();
     return 0;
 }

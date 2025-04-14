@@ -36,7 +36,7 @@ namespace FiberConn
         }
 
         struct addrinfo *server_info = nullptr;
-        struct addrinfo *endpoint = nullptr;
+        struct addrinfo *endpoint = new struct addrinfo();
 
         for (server_info = servlist; server_info != nullptr; server_info = server_info->ai_next)
         {
@@ -69,10 +69,23 @@ namespace FiberConn
             }
             if (server_info->ai_family == address_family)
             {
-                endpoint = server_info;
+                memcpy(endpoint, server_info, sizeof(struct addrinfo));
+                endpoint->ai_addr = new struct sockaddr();
+                memcpy(endpoint->ai_addr, server_info->ai_addr, sizeof(struct sockaddr));
+                endpoint->ai_next = NULL;
+                
+                if (server_info->ai_canonname) {
+                    size_t len = std::strlen(server_info->ai_canonname) + 1;
+                    endpoint->ai_canonname = new char[len];
+                    std::memcpy(endpoint->ai_canonname, server_info->ai_canonname, len);
+                } else {
+                    endpoint->ai_canonname = NULL;
+                }
+                break;
             }
         }
 
+        freeaddrinfo(servlist);
         return endpoint;
     }
 
@@ -83,6 +96,7 @@ namespace FiberConn
 
         if ((sockfd = socket(endpoint->ai_family, endpoint->ai_socktype, endpoint->ai_protocol)) == -1)
         {
+            std::cerr<<"socket descriptor error "<< strerror(errno)<<"\n";
             return -1;
         }
 
@@ -91,6 +105,7 @@ namespace FiberConn
             int yes = 1;
             if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1)
             {
+                std::cerr<<"socket reuse error " <<strerror(errno)<<"\n";
                 return -1;
             }
         }
@@ -99,6 +114,7 @@ namespace FiberConn
         {
             if (fcntl(sockfd, F_SETFL, O_NONBLOCK) == -1)
             {
+                std::cerr<< "socket non-blocking error"<< strerror(errno)<<"\n";
                 return -1;
             }
         }
@@ -200,7 +216,15 @@ namespace FiberConn
     int createConnection(int address_family, char *address, char *port)
     {
         struct addrinfo *endpoint = getEndpoint(address_family, false, address, port);
+        if(endpoint == NULL){
+            std::cerr<<"address invalid\n";
+            return -1;
+        }
         int sockfd = getSocket(endpoint, false, false);
+
+        if(sockfd == -1){
+            return -1;
+        }
 
         if (connect(sockfd, endpoint->ai_addr, endpoint->ai_addrlen) == -1)
         {
@@ -208,9 +232,14 @@ namespace FiberConn
                 return sockfd;
             }
             else{
+                std::cerr<<strerror(errno)<<"\n";
                 return -1;
             }
         }
+
+        delete endpoint->ai_addr;
+        delete[] endpoint->ai_canonname;
+        delete endpoint;
         return sockfd;
     }
     int closeConnection(int socketfd){

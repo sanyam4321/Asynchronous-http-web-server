@@ -17,8 +17,7 @@ struct HttpRequest {
 
 struct HttpResponse {
     std::string version;
-    std::string statusCode;
-    std::string statusMessage;
+    std::string status;
 
     std::string key, value;
     std::unordered_map<std::string, std::string> headers;
