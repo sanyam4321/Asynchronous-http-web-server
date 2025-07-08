@@ -8,13 +8,15 @@
 #include <csignal>
 #include "json.hpp"
 
-
-namespace FiberConn {
+namespace FiberConn
+{
     std::unordered_map<std::string, Clientconnection *> isAlive;
 }
 
-void printHttpResponse(const FiberConn::HttpResponse* response) {
-    if (!response) {
+void printHttpResponse(const FiberConn::HttpResponse *response)
+{
+    if (!response)
+    {
         std::cerr << "Null response pointer.\n";
         return;
     }
@@ -26,7 +28,8 @@ void printHttpResponse(const FiberConn::HttpResponse* response) {
     std::cout << "Value: " << response->value << "\n";
 
     std::cout << "Headers:\n";
-    for (const auto& [k, v] : response->headers) {
+    for (const auto &[k, v] : response->headers)
+    {
         std::cout << "  " << k << ": " << v << "\n";
     }
 
@@ -35,21 +38,23 @@ void printHttpResponse(const FiberConn::HttpResponse* response) {
     std::cout << "\n=====================\n";
 }
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
     signal(SIGPIPE, SIG_IGN);
-    if (argc < 3) {
+    if (argc < 3)
+    {
         std::cerr << "Too few arguments\n";
         return 1;
     }
-    
+
     FiberConn::IOReactor *ioc = new FiberConn::IOReactor(10000);
-    
+
     std::string conninfo = "host=127.0.0.1 port=5432 dbname=mydatabase user=postgres password=mypassword";
-    FiberConn::DBpooler *pooler = new FiberConn::DBpooler(ioc, conninfo, 1);
+    FiberConn::DBpooler *pooler = new FiberConn::DBpooler(ioc, conninfo, 10);
     FiberConn::HttpServer *server = new FiberConn::HttpServer(ioc, argv[1], argv[2]);
 
-    server->listen([ioc, pooler](void *new_con){
+    server->listen([ioc, pooler](void *new_con)
+                   {
         auto *client = static_cast<FiberConn::Clientconnection *>(new_con);
         
         client->read([ioc, pooler](void *new_con){
@@ -101,7 +106,20 @@ int main(int argc, char* argv[])
             std::string title = j.value("title", "");
 
             std::string query = "INSERT INTO books (id, title) VALUES (" + std::to_string(id) + ", '" + title + "');";
-            pooler->sendQuery(query, client->connectionId, [](void *conn){
+            pooler->sendQuery(query, client->connectionId, [pooler](void *conn){
+                auto *dbconnection = static_cast<FiberConn::Dbconnection *>(conn);
+                if(dbconnection->is_error){
+                    std::cerr<<"db query error\n";
+                    return;
+                }
+                
+                FiberConn::Clientconnection *client = dbconnection->getParent();
+                if(client == nullptr) {
+                    return;
+                }
+                
+                std::string query = "SELECT * from books;";
+                pooler->sendQuery(query, client->connectionId, [](void *conn){
                 auto *dbconnection = static_cast<FiberConn::Dbconnection *>(conn);
                 if(dbconnection->is_error){
                     std::cerr<<"db query error\n";
@@ -139,9 +157,10 @@ int main(int argc, char* argv[])
                     });
                 }
             });
-        });
-    });
-    
+                
+            });
+        }); });
+
     ioc->reactorRun();
     return 0;
 }
