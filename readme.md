@@ -20,7 +20,7 @@ This is a **Linux-only** library for high-performance, asynchronous I/O using an
 
 ---
 
-## Architecture Overview
+## Features Overview
 
 The server is capable of handling any combination of I/O tasks:
 
