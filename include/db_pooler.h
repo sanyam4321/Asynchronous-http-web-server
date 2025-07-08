@@ -1,12 +1,11 @@
 #pragma once
 #include "connection_types.h"
-
 namespace FiberConn
 {
 
     struct PendingQuery{
         std::string query;
-        Clientconnection *client;
+        std::string client;
         std::function<void(void *)> cb;
     };
 
@@ -36,7 +35,7 @@ namespace FiberConn
             std::strcpy(conn_info, conninfo.c_str());
 
             for(int i=0; i<pool_size; i++){
-                Dbconnection *dbconn = new Dbconnection(nullptr, ioc);
+                Dbconnection *dbconn = new Dbconnection("", ioc);
                 dbconn->connectDb(conn_info, [this](void *new_dbconn){
                     auto *dbconn = static_cast<Dbconnection *>(new_dbconn);
                     if(dbconn->is_error == false){
@@ -62,14 +61,13 @@ namespace FiberConn
             }
         }
         
-        void sendQuery(std::string query, Clientconnection *client, std::function<void (void *)> cb){
+        void sendQuery(std::string query, std::string client, std::function<void (void *)> cb){
             if(idle_count > 0){
                 auto *dbconn = this->available_conns.front();
                 this->available_conns.pop();
                 this->idle_count--;
 
                 dbconn->parent = client;
-                dbconn->parent_socket = client->socket;
 
                 char query_string[query.length()+1];
                 std::strcpy(query_string, query.c_str());

@@ -8,7 +8,7 @@
 #include <csignal>
 
 namespace FiberConn {
-    std::unordered_map<Clientconnection*, bool> isAlive;
+    std::unordered_map<std::string, Clientconnection *> isAlive;
 }
 
 void printHttpResponse(const FiberConn::HttpResponse* response) {
@@ -44,7 +44,7 @@ int main(int argc, char* argv[])
     FiberConn::IOReactor *ioc = new FiberConn::IOReactor(10000);
 
     
-    FiberConn::APIconnection *apiconn = new FiberConn::APIconnection(nullptr, ioc);
+    FiberConn::APIconnection *apiconn = new FiberConn::APIconnection("", ioc);
 
     std::string address(argv[1]);
     std::string port(argv[2]);
@@ -63,13 +63,14 @@ int main(int argc, char* argv[])
             oss << "\r\n";
 
             std::string request = oss.str();
-
+            std::cout<<request<<std::endl;
             apiconn->sendBuffer.insert(apiconn->sendBuffer.end(), request.begin(), request.end());
 
             apiconn->sendRequest([](void *conn){
                 FiberConn::APIconnection *apiconn = static_cast<FiberConn::APIconnection *>(conn);
                 if(apiconn->is_error){
-                    std::cout<<"error\n";
+                    std::cout<<apiconn->error_description<<std::endl;
+                    printHttpResponse(apiconn->response);
                     delete apiconn;
                     return;
                 }
@@ -78,7 +79,7 @@ int main(int argc, char* argv[])
             });
         }
         else{
-            std::cout<<"connection failed\n";
+            std::cout<<apiconn->error_description<<std::endl;
             delete apiconn;
         }
     });

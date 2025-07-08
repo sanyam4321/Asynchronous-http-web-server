@@ -8,7 +8,7 @@
 #include <csignal>
 
 namespace FiberConn {
-    std::unordered_map<Clientconnection*, bool> isAlive;
+    std::unordered_map<std::string, Clientconnection *> isAlive;
 }
 
 void printHttpResponse(const FiberConn::HttpResponse* response) {
@@ -81,7 +81,7 @@ int main(int argc, char* argv[])
 
 
             std::string query = "SELECT * from books;";
-            pooler->sendQuery(query, client, [](void *conn){
+            pooler->sendQuery(query, client->connectionId, [](void *conn){
                 auto *dbconnection = static_cast<FiberConn::Dbconnection *>(conn);
                 if(dbconnection->is_error){
                     std::cerr<<"db query error\n";

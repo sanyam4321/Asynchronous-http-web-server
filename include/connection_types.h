@@ -7,21 +7,25 @@
 #include "reactor.h"
 #include <cstring>
 #include "postgresql/libpq-fe.h"
+#include "uuid_v4.h"
+#include <string>
 
 namespace FiberConn
 {
 
     class Clientconnection;
-    extern std::unordered_map<Clientconnection *, bool> isAlive;
+
+    extern std::unordered_map<std::string, Clientconnection *> isAlive;
 
     class Clientconnection
     {
         public:
+            std::string connectionId;
             int socket;
             IOReactor *ioc;
 
-            Clientconnection *parent = nullptr;
             bool is_error = false;
+            std::string error_description;
             bool is_request_complete = false;
             HttpRequest *request;
 
@@ -147,6 +151,7 @@ namespace FiberConn
             {
                 /*user will close the connection and delete its memory*/
                 this->is_error = true;
+                this->error_description = "connection closed abruptly";
                 ioc->removeTrack(this->socket);
                 cb(this);
                 return;
@@ -160,8 +165,8 @@ namespace FiberConn
                     llhttp_errno_t llerror = llhttp_execute(this->parser, recvBuffer, read_bytes);
                     if (llerror != HPE_OK)
                     {
-                        std::cerr << "parsing error: " << llhttp_errno_name(llerror) << " parser reason: " << parser->reason << "\n";
                         this->is_error = true;
+                        this->error_description = "Http parsing error";
                         ioc->removeTrack(this->socket);
                         cb(this);
                         return;
@@ -177,6 +182,7 @@ namespace FiberConn
                 if (read_bytes == 0)
                 {
                     this->is_error = true;
+                    this->error_description = "client disconnected";
                     ioc->removeTrack(this->socket);
                     cb(this);
                     return;
@@ -208,8 +214,8 @@ namespace FiberConn
                     }
                     else
                     {
-                        std::cerr<<"Bytes Sent error\n";
                         is_error = true;
+                        this->error_description = "response sending error";
                         ioc->removeTrack(this->socket);
                         cb(this);
                         return;
@@ -220,6 +226,10 @@ namespace FiberConn
 
         Clientconnection(int sockfd, IOReactor *ioc)
         {
+            UUIDv4::UUIDGenerator<std::mt19937_64> uuidGenerator;
+            UUIDv4::UUID uuid = uuidGenerator.getUUID();
+            this->connectionId = uuid.bytes();
+
             this->socket = sockfd;
             this->ioc = ioc;
 
@@ -246,7 +256,7 @@ namespace FiberConn
             
             llhttp_init(parser, HTTP_REQUEST, settings);
             parser->data = static_cast<void *>(this);
-            isAlive[this] = true;
+            isAlive[this->connectionId] = this;
         }
         ~Clientconnection()
         {
@@ -255,7 +265,7 @@ namespace FiberConn
             delete parser;
             delete settings;
 
-            auto it = isAlive.find(this);
+            auto it = isAlive.find(this->connectionId);
             if(it != isAlive.end()){
                 isAlive.erase(it);
             }
@@ -280,13 +290,13 @@ namespace FiberConn
 
     class Dbconnection{
     public:
+        std::string connectionId;
         int socket;
         IOReactor *ioc;
     
         DbConnectionState connection_state;
 
-        Clientconnection *parent = nullptr;
-        int parent_socket;
+        std::string parent;
 
         bool is_error = false;  
 
@@ -473,26 +483,26 @@ namespace FiberConn
 
         Clientconnection *getParent(){
             Clientconnection *parent_ptr = nullptr;
+
             auto it = isAlive.find(this->parent);
             if(it != isAlive.end()){
-                parent_ptr = this->parent;
+                parent_ptr = isAlive[this->parent];
             }
             return parent_ptr;
         }
 
         void resetConnection(){
-            this->parent = nullptr;
-            this->parent_socket = 0;
+            this->parent = "#";
             this->results.clear();
         }
 
-        Dbconnection(Clientconnection *parent, IOReactor *ioc)
+        Dbconnection(std::string parent, IOReactor *ioc)
         {
             this->ioc = ioc;
-            this->parent = parent;
-            if(this->parent != nullptr){
-                this->parent_socket = parent->socket;
-            }
+            if(parent == "")
+                this->parent = "#";
+            else
+                this->parent = parent;
             this->connection_state = DbConnectionState::NOT_CONNECTED;
             conn = NULL;
         }
@@ -514,13 +524,15 @@ namespace FiberConn
 
     class APIconnection{
     public:
+        std::string connectionId;
         int socket;
         IOReactor *ioc;
         ApiConnectionState state;
 
-        Clientconnection *parent;
+        std::string parent;
 
         bool is_error = false;
+        std::string error_description;
         bool is_request_complete = false;
         HttpResponse *response;
 
@@ -626,6 +638,7 @@ namespace FiberConn
             this->socket = createConnection(address_family, address_char, port_char);
             if(this->socket == -1){
                 this->is_error = true;
+                this->error_description = "can not create connection";
                 cb(this);
                 return;
             }
@@ -645,9 +658,10 @@ namespace FiberConn
 
         void handleEvent(struct epoll_event ev, std::function<void(void *)> cb){
             if (ev.events & EPOLLERR)
-            {
+            {   
                 /*user will close the connection and delete its memory*/
                 this->is_error = true;
+                this->error_description = "connection closed abruptly";
                 this->state = ApiConnectionState::API_IDLE;
                 ioc->removeTrack(this->socket);
                 cb(this);
@@ -686,8 +700,8 @@ namespace FiberConn
                     }
                     else
                     {
-                        std::cerr<<"Bytes Sent error\n";
-                        is_error = true;
+                        this->is_error = true;
+                        this->error_description = "request sending error";
                         this->state = ApiConnectionState::API_IDLE;
                         ioc->removeTrack(this->socket);
                         cb(this);
@@ -703,8 +717,8 @@ namespace FiberConn
                     llhttp_errno_t llerror = llhttp_execute(this->parser, recvBuffer, read_bytes);
                     if (llerror != HPE_OK)
                     {
-                        std::cerr << "parsing error: " << llhttp_errno_name(llerror) << " parser reason: " << parser->reason << "\n";
                         this->is_error = true;
+                        this->error_description = "Http parsing error";
                         this->state = ApiConnectionState::API_IDLE;
                         ioc->removeTrack(this->socket);
                         cb(this);
@@ -718,10 +732,11 @@ namespace FiberConn
                     }
                     memset(this->recvBuffer, 0, sizeof(this->recvBuffer));
                 }
-                /* what happens if error */
+                /* what happens if disconnect */
                 if (read_bytes == 0)
                 {
                     this->is_error = true;
+                    this->error_description = "client disconnected";
                     this->state = ApiConnectionState::API_IDLE;
                     ioc->removeTrack(this->socket);
                     cb(this);
@@ -733,16 +748,21 @@ namespace FiberConn
 
         Clientconnection *getParent(){
             Clientconnection *parent_ptr = nullptr;
+
             auto it = isAlive.find(this->parent);
             if(it != isAlive.end()){
-                parent_ptr = this->parent;
+                parent_ptr = isAlive[this->parent];
             }
             return parent_ptr;
         }
 
-        APIconnection(Clientconnection *parent, IOReactor *ioc){
+        APIconnection(std::string parent, IOReactor *ioc){
             this->ioc = ioc;
-            this->parent = parent;
+            if(parent == "")
+                this->parent = "#";
+            else
+                this->parent = parent;
+
             this->state = ApiConnectionState::API_IDLE;
 
             this->response = new HttpResponse();
