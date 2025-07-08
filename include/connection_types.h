@@ -333,6 +333,7 @@ namespace FiberConn
             int status = PQflush(this->conn);
             if(status == -1){
                 is_error = true;
+                std::cerr<<PQerrorMessage(conn)<<"\n";
                 this->connection_state = DbConnectionState::IDLE;
                 cb(this);
                 return;
@@ -358,6 +359,7 @@ namespace FiberConn
 
             if(ev.events & EPOLLERR){
                 is_error = true;
+                std::cerr<<PQerrorMessage(conn)<<"\n";
                 ioc->removeTrack(this->socket);
                 cb(this);
                 return;
@@ -383,6 +385,7 @@ namespace FiberConn
                 {
                     std::cout<<"database polling failed\n";
                     is_error = true;
+                    std::cerr<<PQerrorMessage(conn)<<"\n";
                     this->ioc->removeTrack(this->socket);
                     cb(this);
                     return;
@@ -404,6 +407,7 @@ namespace FiberConn
                     flushStatus = PQflush(this->conn);
                     if(flushStatus == -1){
                         is_error = true;
+                        std::cerr<<PQerrorMessage(conn)<<"\n";
                         this->ioc->removeTrack(this->socket);
                         cb(this);
                         return;
@@ -414,6 +418,7 @@ namespace FiberConn
                     flushStatus = PQflush(this->conn);
                     if(flushStatus == -1 || consumeStatus == 0){
                         is_error = true;
+                        std::cerr<<PQerrorMessage(conn)<<"\n";
                         this->ioc->removeTrack(this->socket);
                         cb(this);
                         return;
@@ -432,6 +437,7 @@ namespace FiberConn
                 int status = PQconsumeInput(conn);
                 if(status == 0){
                     is_error = true;
+                    std::cerr<<PQerrorMessage(conn)<<"\n";
                     this->ioc->removeTrack(this->socket);
                     this->connection_state = DbConnectionState::IDLE;
                     cb(this);

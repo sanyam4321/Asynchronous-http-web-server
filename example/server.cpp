@@ -43,7 +43,7 @@ int main(int argc, char* argv[])
     
     FiberConn::IOReactor *ioc = new FiberConn::IOReactor(10000);
     
-    std::string conninfo = "host=127.0.0.1 port=5432 dbname=mydatabase user=myuser password=mypassword";
+    std::string conninfo = "host=127.0.0.1 port=5432 dbname=mydatabase user=postgres password=mypassword";
     FiberConn::DBpooler *pooler = new FiberConn::DBpooler(ioc, conninfo, 100);
     FiberConn::HttpServer *server = new FiberConn::HttpServer(ioc, argv[1], argv[2]);
 
@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
                 delete client;
                 return;
             }
-            if(client->request->URL == "/books"){
+            if(client->request->URL == "/"){
                 std::string body = "Hello World";
 
                 std::ostringstream oss;
