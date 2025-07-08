@@ -46,7 +46,7 @@ int main(int argc, char* argv[])
     FiberConn::IOReactor *ioc = new FiberConn::IOReactor(10000);
     
     std::string conninfo = "host=127.0.0.1 port=5432 dbname=mydatabase user=postgres password=mypassword";
-    FiberConn::DBpooler *pooler = new FiberConn::DBpooler(ioc, conninfo, 100);
+    FiberConn::DBpooler *pooler = new FiberConn::DBpooler(ioc, conninfo, 1);
     FiberConn::HttpServer *server = new FiberConn::HttpServer(ioc, argv[1], argv[2]);
 
     server->listen([ioc, pooler](void *new_con){

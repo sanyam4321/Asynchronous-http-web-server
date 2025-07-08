@@ -458,8 +458,12 @@ namespace FiberConn
                         ExecStatusType queryStatus = PQresultStatus(res);
                         if (queryStatus != PGRES_TUPLES_OK && queryStatus != PGRES_COMMAND_OK){
                             std::cerr<<PQerrorMessage(conn)<<"\n";
-                            PQclear(res);
+                            
                             is_error = true;
+
+                            while((res = PQgetResult(this->conn)) != NULL){
+                                PQclear(res);
+                            }
                             cb(this);
                             return;
                         }
