@@ -6,6 +6,8 @@
 #include <sstream>
 #include "db_pooler.h"
 #include <csignal>
+#include "json.hpp"
+
 
 namespace FiberConn {
     std::unordered_map<std::string, Clientconnection *> isAlive;
@@ -57,8 +59,18 @@ int main(int argc, char* argv[])
                 return;
             }
             if(client->request->URL == "/"){
-                std::string body = "Hello World";
+                
+                nlohmann::json j = nlohmann::json::parse(client->request->body, nullptr, false);
+                
+                std::string body;
 
+                if(j.is_discarded() == false){
+                    int id = j.value("id", 0);
+                    std::string title = j.value("title", "");
+                    body = j.dump();
+                }
+
+                
                 std::ostringstream oss;
                 oss << "HTTP/1.1 200 OK\r\n"
                     << "Content-Type: text/plain\r\n"
@@ -91,19 +103,16 @@ int main(int argc, char* argv[])
                 if(client == nullptr) {
                     return;
                 }
-                std::ostringstream bodyStream;
 
+                nlohmann::json j;
+            
                 for (const auto& result : dbconnection->results) {
                     int nrows = result.rows, ncols = result.cols;
                     for (int i = 0; i < nrows; ++i) {
-                        for (int j = 0; j < ncols; ++j) {
-                            bodyStream << result.table[i][j];
-                            if (j < ncols - 1) bodyStream << ", ";
-                        }
-                        bodyStream << "\n";
+                        j.push_back({{"id", result.table[i][0]}, {"title", result.table[i][1]}});
                     }
                 }
-                std::string body = bodyStream.str();
+                std::string body = j.dump();
 
                 std::ostringstream oss;
                 oss << "HTTP/1.1 200 OK\r\n"
