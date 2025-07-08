@@ -90,9 +90,17 @@ int main(int argc, char* argv[])
                 return;
             }
             
+            nlohmann::json j = nlohmann::json::parse(client->request->body, nullptr, false);
 
+            if(j.is_discarded()){
+                delete client;
+                return;
+            }
+            
+            int id = j.value("id", 0);
+            std::string title = j.value("title", "");
 
-            std::string query = "SELECT * from books;";
+            std::string query = "INSERT INTO books (id, title) VALUES (" + std::to_string(id) + ", '" + title + "');";
             pooler->sendQuery(query, client->connectionId, [](void *conn){
                 auto *dbconnection = static_cast<FiberConn::Dbconnection *>(conn);
                 if(dbconnection->is_error){

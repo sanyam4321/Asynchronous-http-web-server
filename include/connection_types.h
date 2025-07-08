@@ -455,7 +455,8 @@ namespace FiberConn
                     /*storing all the results locally*/
                     PGresult *res;
                     while((res = PQgetResult(this->conn)) != NULL){
-                        if (PQresultStatus(res) != PGRES_TUPLES_OK){
+                        ExecStatusType queryStatus = PQresultStatus(res);
+                        if (queryStatus != PGRES_TUPLES_OK && queryStatus != PGRES_COMMAND_OK){
                             std::cerr<<PQerrorMessage(conn)<<"\n";
                             PQclear(res);
                             is_error = true;
@@ -500,6 +501,7 @@ namespace FiberConn
         void resetConnection(){
             this->parent = "#";
             this->results.clear();
+            this->is_error = false;
         }
 
         Dbconnection(std::string parent, IOReactor *ioc)
