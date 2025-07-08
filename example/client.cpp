@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
             
             std::ostringstream oss;
             oss << "GET / HTTP/1.1\r\n";
-            oss << "Host: www.habfix-gray.vercel.app\r\n";
+            oss << "Host: neverssl.com\r\n";
             oss << "User-Agent: FiberConn/1.0\r\n";
             oss << "Accept: */*\r\n";
             oss << "Connection: close\r\n";
