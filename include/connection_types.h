@@ -12,7 +12,6 @@
 
 namespace FiberConn
 {
-
     extern std::unordered_map<std::string, Clientconnection *> isAlive;
 
     class Clientconnection
