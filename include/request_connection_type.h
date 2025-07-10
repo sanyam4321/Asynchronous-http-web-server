@@ -6,7 +6,6 @@
 #include "llhttp.h"
 #include "reactor.h"
 #include <cstring>
-#include "uuid_v4.h"
 #include <string>
 #include "http_server_type.h"
 
