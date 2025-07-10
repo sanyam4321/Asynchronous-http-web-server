@@ -6,7 +6,6 @@
 #include "llhttp.h"
 #include "reactor.h"
 #include <cstring>
-#include "postgresql/libpq-fe.h"
 #include "uuid_v4.h"
 #include <string>
 
